@@ -13,11 +13,9 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
-	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/database"
 	"github.com/google/uuid"
 )
 
@@ -134,36 +132,6 @@ func processVideoForFastStart(filePath string) (string, error) {
 	return newPath, nil
 }
 
-func generatePresignedURL(s3Client *s3.Client, bucket, key string, expireTime time.Duration) (string, error) {
-	presignClient := s3.NewPresignClient(s3Client)
-	params := s3.GetObjectInput{}
-	params.Key = &key
-	params.Bucket = &bucket
-	request, err := presignClient.PresignGetObject(context.Background(), &params, s3.WithPresignExpires(expireTime))
-	if err != nil {
-		fmt.Println(err)
-		return "", err
-	}
-	return request.URL, nil
-}
-
-func (cfg *apiConfig) dbVideoToSignedVideo(video database.Video) (database.Video, error) {
-	fmt.Println(video.VideoURL)
-	bucketWKey := strings.Split(*video.VideoURL, ",")
-	if len(bucketWKey) != 2 {
-		fmt.Println("CANNOT SPLIT BUCKET W KEY")
-		return database.Video{}, fmt.Errorf("videoURL doesn't have correct format")
-	}
-	fmt.Println(bucketWKey)
-	presignedURL, err := generatePresignedURL(cfg.s3Client, bucketWKey[0], bucketWKey[1], (5 * time.Minute))
-	if err != nil {
-		fmt.Println(err)
-		return database.Video{}, nil
-	}
-	video.VideoURL = &presignedURL
-	return video, nil
-}
-
 func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request) {
 	uploadLimit := 1 << 30
 	r.Body = http.MaxBytesReader(w, r.Body, int64(uploadLimit))
@@ -277,18 +245,12 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	fmt.Println(output)
-	videoURL := cfg.s3Bucket + "," + paramKey
-	//videoURL := "https://" + cfg.s3Bucket + ".s3." + cfg.s3Region + ".amazonaws.com/" + paramKey
+	//videoURL := cfg.s3Bucket + "," + paramKey
+	videoURL := "https://" + cfg.s3CfDistribution + "/" + paramKey
 	videoData.VideoURL = &videoURL
 	err = cfg.db.UpdateVideo(videoData)
 	if err != nil {
 		fmt.Println(err)
-		return
-	}
-	videoData, err = cfg.dbVideoToSignedVideo(videoData)
-	if err != nil {
-		fmt.Println(err)
-		respondWithError(w, http.StatusInternalServerError, "Couldnt get signed URL", err)
 		return
 	}
 }
